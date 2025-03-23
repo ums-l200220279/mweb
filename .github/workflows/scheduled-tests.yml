@@ -1,0 +1,134 @@
+name: Scheduled Tests
+
+on:
+  schedule:
+    # Run every day at midnight UTC
+    - cron: '0 0 * * *'
+
+env:
+  NODE_VERSION: 18
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+jobs:
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Cypress
+        run: npx cypress install
+
+      - name: Run Cypress tests against production
+        run: npm run test:e2e:prod
+        env:
+          CYPRESS_BASE_URL: ${{ secrets.PRODUCTION_URL }}
+
+      - name: Upload Cypress screenshots
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots/
+
+      - name: Upload Cypress videos
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: cypress-videos
+          path: cypress/videos/
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install k6
+        run: |
+          curl -L https://github.com/loadimpact/k6/releases/download/v0.33.0/k6-v0.33.0-linux-amd64.tar.gz | tar xzf -
+          sudo cp k6-v0.33.0-linux-amd64/k6 /usr/local/bin
+
+      - name: Run k6 performance tests
+        run: k6 run tests/performance/load-test.js
+        env:
+          K6_BASE_URL: ${{ secrets.PRODUCTION_URL }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run OWASP ZAP scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: ${{ secrets.PRODUCTION_URL }}
+          rules_file_name: 'zap-rules.tsv'
+          cmd_options: '-a'
+
+  uptime-check:
+    name: Uptime Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production status
+        uses: jtalk/url-health-check-action@v3
+        with:
+          url: ${{ secrets.PRODUCTION_URL }}
+          max-attempts: 3
+          retry-delay: 5s
+          retry-all: true
+
+      - name: Check API status
+        uses: jtalk/url-health-check-action@v3
+        with:
+          url: ${{ secrets.PRODUCTION_URL }}/api/health
+          max-attempts: 3
+          retry-delay: 5s
+          retry-all: true
+          
+  database-backup:
+    name: Database Backup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          
+      - name: Backup database
+        run: |
+          pg_dump ${{ secrets.DATABASE_URL }} > backup-$(date +%Y-%m-%d).sql
+          
+      - name: Upload backup
+        uses: actions/upload-artifact@v3
+        with:
+          name: database-backup
+          path: backup-*.sql
+          retention-days: 7
+

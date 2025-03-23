@@ -1,0 +1,79 @@
+name: Load Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      duration:
+        description: 'Test duration in seconds'
+        required: true
+        default: '60'
+        type: string
+      connections:
+        description: 'Number of concurrent connections'
+        required: true
+        default: '100'
+        type: string
+
+jobs:
+  load-test:
+    name: Run Load Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            echo "LOAD_TEST_BASE_URL=${{ secrets.PROD_API_URL }}" >> $GITHUB_ENV
+            echo "LOAD_TEST_AUTH_TOKEN=${{ secrets.PROD_LOAD_TEST_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "LOAD_TEST_BASE_URL=${{ secrets.STAGING_API_URL }}" >> $GITHUB_ENV
+            echo "LOAD_TEST_AUTH_TOKEN=${{ secrets.STAGING_LOAD_TEST_TOKEN }}" >> $GITHUB_ENV
+          fi
+          echo "LOAD_TEST_DURATION=${{ github.event.inputs.duration }}" >> $GITHUB_ENV
+          echo "LOAD_TEST_CONNECTIONS=${{ github.event.inputs.connections }}" >> $GITHUB_ENV
+          
+      - name: Run load tests
+        run: npx ts-node scripts/load-testing.ts
+        
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: load-test-results
+          path: load-test-results/
+          
+      - name: Analyze results
+        run: |
+          echo "Analyzing load test results..."
+          # Add script to analyze results and determine if performance is acceptable
+          npx ts-node scripts/analyze-load-test.ts
+          
+      - name: Send notification
+        if: always()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: performance-monitoring
+          SLACK_TITLE: Load Test Results (${{ github.event.inputs.environment }})
+          SLACK_MESSAGE: "Load test completed with ${{ github.event.inputs.connections }} connections for ${{ github.event.inputs.duration }} seconds."
+          SLACK_COLOR: ${{ job.status }}
+
