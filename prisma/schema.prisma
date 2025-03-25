@@ -8,32 +8,38 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Enable connection pooling
+  relationMode = "prisma"
 }
 
-// User model
+enum UserRole {
+  USER
+  INSTRUCTOR
+  ADMIN
+}
+
 model User {
-  id                String    @id @default(cuid())
-  name              String?
-  email             String    @unique
-  emailVerified     DateTime?
-  image             String?
-  password          String?
-  role              String    @default("user")
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  preferences       Json?     // User preferences including accessibility settings
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  role          UserRole  @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  twoFactorAuth TwoFactorAuth?
+  gameResults   GameResult[]
   
-  // Relations
-  accounts          Account[]
-  sessions          Session[]
-  cognitiveAssessments CognitiveAssessment[]
-  gameResults       GameResult[]
-  mmseTests         MMSETest[]
-  featureFlagOverrides FeatureFlagOverride[]
-  assistantFeedback AssistantFeedback[]
+  // Add indexes for frequently queried fields
+  @@index([email])
+  @@index([role])
+  @@index([createdAt])
 }
 
-// NextAuth models
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -51,6 +57,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 model Session {
@@ -58,7 +65,49 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent    String?
+  ipAddress    String?
+  lastActive   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([expires])
+  @@index([lastActive])
+}
+
+model TwoFactorAuth {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  secret    String
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+}
+
+model GameResult {
+  id           String   @id @default(cuid())
+  userId       String
+  gameType     String
+  score        Float
+  accuracy     Float?
+  reactionTime Float?
+  duration     Int
+  difficulty   String
+  taskType     String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([gameType])
+  @@index([createdAt])
+  @@index([difficulty])
 }
 
 model VerificationToken {
@@ -67,147 +116,36 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@index([expires])
 }
 
-// Cognitive assessment models
-model CognitiveAssessment {
-  id                    String   @id @default(cuid())
-  userId                String
-  createdAt             DateTime @default(now())
-  overallScore          Float
-  memoryScore           Float
-  attentionScore        Float
-  processingSpeedScore  Float
-  executiveFunctionScore Float
-  languageScore         Float?
-  notes                 String?  @db.Text
-  
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model GameResult {
-  id                String   @id @default(cuid())
-  userId            String
-  gameType          String   // memory, attention, processing, executive, language
-  score             Float
-  timeSpent         Int      // in seconds
-  difficulty        String   // easy, medium, hard
-  createdAt         DateTime @default(now())
-  metadata          Json?    // Additional game-specific data
-  
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model MMSETest {
-  id                String   @id @default(cuid())
-  userId            String
-  createdAt         DateTime @default(now())
-  score             Int
-  orientation       Int
-  registration      Int
-  attentionCalculation Int
-  recall            Int
-  language          Int
-  notes             String?  @db.Text
-  
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-// Feature flag models
-model FeatureFlag {
-  id                String   @id @default(cuid())
-  name              String   @unique
-  description       String?
-  enabled           Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  // Targeting rules
-  rules             Json?    // Rules for enabling the feature for specific users
-  
-  // Relations
-  overrides         FeatureFlagOverride[]
-}
-
-model FeatureFlagOverride {
-  id                String   @id @default(cuid())
-  featureFlagId     String
-  userId            String
-  enabled           Boolean
-  createdAt         DateTime @default(now())
-  expiresAt         DateTime?
-  
-  // Relations
-  featureFlag       FeatureFlag @relation(fields: [featureFlagId], references: [id], onDelete: Cascade)
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  @@unique([featureFlagId, userId])
-}
-
-// A/B Testing models
-model Experiment {
-  id                String   @id @default(cuid())
-  name              String   @unique
-  description       String?
-  status            String   // draft, running, paused, completed
-  startDate         DateTime?
-  endDate           DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  // Experiment configuration
-  targetPercentage  Float    @default(100) // Percentage of users to include
-  targetFilters     Json?    // Filters for targeting specific users
-  
-  // Relations
-  variants          ExperimentVariant[]
-  results           ExperimentResult[]
-}
-
-model ExperimentVariant {
-  id                String   @id @default(cuid())
-  experimentId      String
-  name              String
-  description       String?
-  weight            Float    @default(1) // Relative weight for random assignment
-  
-  // Relations
-  experiment        Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
-  results           ExperimentResult[]
-  
-  @@unique([experimentId, name])
-}
-
-model ExperimentResult {
-  id                String   @id @default(cuid())
-  experimentId      String
-  variantId         String
-  userId            String?
-  sessionId         String?
-  event             String   // impression, conversion, etc.
-  value             Float?   // Optional value for the event
-  metadata          Json?    // Additional event data
-  createdAt         DateTime @default(now())
-  
-  // Relations
-  experiment        Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
-  variant           ExperimentVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-}
-
-// Assistant models
-model AssistantFeedback {
+// Add audit log table for security events
+model AuditLog {
   id        String   @id @default(cuid())
-  messageId String
-  feedback  String
-  userId    String
-  sessionId String
+  userId    String?
+  action    String
+  resource  String?
+  details   String?  @db.Text
+  ipAddress String?
+  userAgent String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
-
+  
   @@index([userId])
-  @@index([messageId])
-  @@index([sessionId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Add performance metrics table
+model PerformanceMetric {
+  id          String   @id @default(cuid())
+  endpoint    String
+  method      String
+  statusCode  Int
+  duration    Int      // in milliseconds
+  timestamp   DateTime @default(now())
+  
+  @@index([endpoint])
+  @@index([statusCode])
+  @@index([timestamp])
 }
 

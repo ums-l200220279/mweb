@@ -1,32 +1,124 @@
-# Memoright Architecture Documentation
+## Observability Architecture
 
-## Overview
+Comprehensive observability is essential for maintaining and troubleshooting Memoright in production. This section details our approach to monitoring, logging, and tracing.
 
-Memoright is an AI-powered cognitive health platform designed to provide early detection, personalized care, and continuous support for better brain health. This document outlines the architecture, design decisions, and technical implementation details.
+### Monitoring Strategy
 
-## Architecture Principles
+1. **Infrastructure Monitoring**:
+   - Server metrics (CPU, memory, disk, network)
+   - Container metrics
+   - Database performance metrics
+   - Queue lengths and processing rates
 
-1. **Modular Design**: Components are designed to be self-contained with clear interfaces
-2. **Scalability**: System can handle increasing load without significant changes
-3. **Security**: Patient data is protected with multiple layers of security
-4. **Accessibility**: UI/UX is designed to be accessible to all users
-5. **Performance**: System is optimized for fast response times and minimal resource usage
+2. **Application Monitoring**:
+   - Request rates and latencies
+   - Error rates and types
+   - Endpoint performance
+   - Background job execution
 
-## System Architecture
+3. **Business Metrics**:
+   - User engagement metrics
+   - Assessment completion rates
+   - Cognitive improvement trends
+   - Conversion and retention metrics
 
-### Frontend Architecture
+### Logging Architecture
 
-The frontend is built using Next.js with the App Router, implementing a micro-frontend architecture for scalability and maintainability.
+1. **Log Collection**:
+   - Structured logging in JSON format
+   - Centralized log aggregation
+   - Log shipping with minimal latency
+   - Buffering and retry mechanisms
 
-```mermaid
-graph TD
-    A[Client Browser] --> B[Next.js App]
-    B --> C[App Shell]
-    C --> D[Micro-Frontends]
-    D --> E[Patient Analytics]
-    D --> F[Cognitive Assessment]
-    D --> G[Admin Dashboard]
-    D --> H[User Management]
-    B --> I[API Layer]
-    I --> J[Backend Services]
+2. **Log Levels and Categories**:
+   - ERROR: Exceptions and failures requiring attention
+   - WARN: Potential issues not affecting functionality
+   - INFO: Significant events in normal operation
+   - DEBUG: Detailed information for troubleshooting
+   - AUDIT: Security and compliance events
+
+3. **Context Enrichment**:
+   - Request ID for correlation
+   - User ID and session information
+   - Service and environment identifiers
+   - Source code references
+
+### Distributed Tracing
+
+1. **Trace Propagation**:
+   - W3C Trace Context standard
+   - Consistent trace ID across service boundaries
+   - Span hierarchy for operation nesting
+
+2. **Span Attributes**:
+   - Operation name and type
+   - Timing information
+   - Error flags and messages
+   - Custom attributes for business context
+
+3. **Sampling Strategy**:
+   - Head-based sampling for high-volume operations
+   - Tail-based sampling for error detection
+   - Priority sampling for critical paths
+
+### Health Checking
+
+1. **Endpoint Health**:
+   - Liveness probes for basic availability
+   - Readiness probes for service availability
+   - Synthetic transactions for functional verification
+
+2. **Dependency Health**:
+   - Database connectivity checks
+   - External API availability monitoring
+   - Cache service health verification
+
+3. **Composite Health**:
+   - Aggregated health status
+   - Degraded service detection
+   - Health score calculation
+
+### Alerting Framework
+
+1. **Alert Definition**:
+   - Clear thresholds based on SLOs
+   - Multi-condition alerts to reduce noise
+   - Alert severity classification
+
+2. **Alert Routing**:
+   - On-call rotation integration
+   - Escalation policies
+   - Different channels based on severity
+
+3. **Alert Response**:
+   - Runbooks for common alerts
+   - Automated remediation where possible
+   - Post-mortem process for critical incidents
+
+### Visualization and Dashboards
+
+1. **Operational Dashboards**:
+   - Real-time service health
+   - Error rates and latencies
+   - Resource utilization
+
+2. **Business Dashboards**:
+   - User activity and engagement
+   - Assessment metrics
+   - Cognitive health trends
+
+3. **Executive Dashboards**:
+   - SLA compliance
+   - Key performance indicators
+   - Growth metrics
+
+### Observability Tools Integration
+
+| Category | Primary Tool | Backup/Alternative |
+|----------|--------------|-------------------|
+| Metrics | Prometheus | Datadog |
+| Logging | ELK Stack | Loki |
+| Tracing | Jaeger | Zipkin |
+| Alerting | PagerDuty | OpsGenie |
+| Dashboards | Grafana | Datadog |
 

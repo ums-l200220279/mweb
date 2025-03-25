@@ -1,385 +1,334 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Clock, Award, RotateCcw, Home } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { Clock, Award, RotateCcw, Play, Pause } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
-import { useToast } from "@/hooks/use-toast"
+import { cn } from "@/lib/utils"
 
 interface MemoryCard {
   id: number
   value: string
-  flipped: boolean
-  matched: boolean
-  image?: string
+  isFlipped: boolean
+  isMatched: boolean
 }
 
 interface MemoryMatchProps {
-  difficulty?: "EASY" | "MEDIUM" | "HARD" | "ADAPTIVE"
-  customConfig?: { pairs: number; timeLimit: number }
-  onComplete?: (results: {
-    score: number
-    accuracy: number
-    completionRate: number
-    mistakeCount: number
-    reactionTime: number
-    duration: number
-  }) => void
-  onExit?: () => void
-  sessionId?: string
-  adaptiveLevel?: number
-  userId?: string
+  difficulty?: "easy" | "medium" | "hard"
+  onComplete?: (score: number, time: number) => void
 }
 
-export default function MemoryMatchGame({
-  difficulty = "MEDIUM",
-  customConfig,
-  onComplete,
-  onExit,
-  sessionId,
-  adaptiveLevel,
-  userId,
-}: MemoryMatchProps) {
-  const { toast } = useToast()
+export default function MemoryMatch({ difficulty = "medium", onComplete }: MemoryMatchProps) {
   const [cards, setCards] = useState<MemoryCard[]>([])
   const [flippedCards, setFlippedCards] = useState<number[]>([])
   const [matchedPairs, setMatchedPairs] = useState<number>(0)
   const [moves, setMoves] = useState<number>(0)
-  const [gameStarted, setGameStarted] = useState<boolean>(false)
-  const [gameCompleted, setGameCompleted] = useState<boolean>(false)
-  const [timeElapsed, setTimeElapsed] = useState<number>(0)
+  const [time, setTime] = useState<number>(0)
+  const [isPlaying, setIsPlaying] = useState<boolean>(false)
+  const [gameComplete, setGameComplete] = useState<boolean>(false)
   const [score, setScore] = useState<number>(0)
-  const [mistakes, setMistakes] = useState<number>(0)
-  const [firstMoveTime, setFirstMoveTime] = useState<number | null>(null)
-  const [reactionTimes, setReactionTimes] = useState<number[]>([])
-  const [lastMoveTime, setLastMoveTime] = useState<number>(Date.now())
-  const [showInstructions, setShowInstructions] = useState<boolean>(true)
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const gameContainerRef = useRef<HTMLDivElement>(null)
+  // Determine grid size and total pairs based on difficulty
+  const gridConfig = {
+    easy: { cols: 4, rows: 3, totalPairs: 6 },
+    medium: { cols: 4, rows: 4, totalPairs: 8 },
+    hard: { cols: 6, rows: 4, totalPairs: 12 },
+  }[difficulty]
 
-  // Define game parameters based on difficulty
-  const getGameConfig = () => {
-    switch (difficulty) {
-      case "EASY":
-        return {
-          pairs: 6,
-          timeLimit: 60,
-        }
-      case "MEDIUM":
-        return {
-          pairs: 8,
-          timeLimit: 90,
-        }
-      case "HARD":
-        return {
-          pairs: 12,
-          timeLimit: 120,
-        }
-      case "ADAPTIVE":
-        return {
-          pairs: 8,
-          timeLimit: 90,
-        }
-      default:
-        return {
-          pairs: customConfig?.pairs || 8,
-          timeLimit: customConfig?.timeLimit || 90,
-        }
-    }
-  }
-
-  const { pairs, timeLimit } = getGameConfig()
+  const totalPairs = gridConfig.totalPairs
 
   // Initialize game
   useEffect(() => {
     initializeGame()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [difficulty, customConfig])
+  }, [difficulty])
 
-  // Timer effect
+  // Timer
   useEffect(() => {
-    if (gameStarted && !gameCompleted) {
-      timerRef.current = setInterval(() => {
-        setTimeElapsed((prev) => {
-          if (prev >= timeLimit) {
-            endGame(false)
-            return prev
-          }
-          return prev + 1
-        })
+    let timer: NodeJS.Timeout | null = null
+
+    if (isPlaying && !gameComplete) {
+      timer = setInterval(() => {
+        setTime((prevTime) => prevTime + 1)
       }, 1000)
     }
 
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
+      if (timer) clearInterval(timer)
+    }
+  }, [isPlaying, gameComplete])
+
+  // Check for game completion
+  useEffect(() => {
+    if (matchedPairs === totalPairs && totalPairs > 0) {
+      const finalScore = calculateScore()
+      setScore(finalScore)
+      setIsPlaying(false)
+      setGameComplete(true)
+
+      // Trigger confetti
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+      })
+
+      if (onComplete) {
+        onComplete(finalScore, time)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameStarted, gameCompleted, timeLimit])
+  }, [matchedPairs, totalPairs])
 
-  // Initialize the game
+  // Check for matches when two cards are flipped
+  useEffect(() => {
+    if (flippedCards.length === 2) {
+      const [firstCardId, secondCardId] = flippedCards
+      const firstCard = cards.find((card) => card.id === firstCardId)
+      const secondCard = cards.find((card) => card.id === secondCardId)
+
+      if (firstCard && secondCard && firstCard.value === secondCard.value) {
+        // Match found
+        setCards((prevCards) =>
+          prevCards.map((card) =>
+            card.id === firstCardId || card.id === secondCardId ? { ...card, isMatched: true } : card,
+          ),
+        )
+        setMatchedPairs((prev) => prev + 1)
+        setFlippedCards([])
+      } else {
+        // No match, flip back after delay
+        const timer = setTimeout(() => {
+          setFlippedCards([])
+        }, 1000)
+        return () => clearTimeout(timer)
+      }
+
+      setMoves((prev) => prev + 1)
+    }
+  }, [flippedCards, cards])
+
   const initializeGame = () => {
-    const newCards = createCards(pairs)
-    setCards(newCards)
+    const emojis = ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵"]
+    const selectedEmojis = emojis.slice(0, totalPairs)
+
+    // Create pairs
+    const cardPairs = [...selectedEmojis, ...selectedEmojis].map((value, index) => ({
+      id: index,
+      value,
+      isFlipped: false,
+      isMatched: false,
+    }))
+
+    // Shuffle cards
+    const shuffledCards = cardPairs.sort(() => Math.random() - 0.5)
+
+    setCards(shuffledCards)
     setFlippedCards([])
     setMatchedPairs(0)
     setMoves(0)
+    setTime(0)
+    setIsPlaying(false)
+    setGameComplete(false)
     setScore(0)
-    setTimeElapsed(0)
-    setGameStarted(false)
-    setGameCompleted(false)
-    setFirstMoveTime(null)
-    setReactionTimes([])
   }
 
-  // Create the cards
-  const createCards = (pairs: number): MemoryCard[] => {
-    const cardValues: string[] = []
-    for (let i = 1; i <= pairs; i++) {
-      cardValues.push(String(i))
-      cardValues.push(String(i))
+  const handleCardClick = (cardId: number) => {
+    if (!isPlaying) {
+      setIsPlaying(true)
     }
 
-    const shuffledValues = shuffleArray(cardValues)
-
-    return shuffledValues.map((value, index) => ({
-      id: index,
-      value: value,
-      flipped: false,
-      matched: false,
-    }))
-  }
-
-  // Shuffle an array (Fisher-Yates algorithm)
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const newArray = [...array]
-    for (let i = newArray.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[newArray[i], newArray[j]] = [newArray[j], newArray[i]]
+    // Ignore click if:
+    // - Card is already flipped or matched
+    // - Two cards are already flipped
+    const clickedCard = cards.find((card) => card.id === cardId)
+    if (!clickedCard || clickedCard.isFlipped || clickedCard.isMatched || flippedCards.length >= 2 || gameComplete) {
+      return
     }
-    return newArray
-  }
-
-  // Handle card click
-  const handleCardClick = (index: number) => {
-    if (flippedCards.length === 2 || cards[index].flipped || cards[index].matched || gameCompleted) return
-
-    // Start the game if not started
-    if (!gameStarted) {
-      setGameStarted(true)
-      setFirstMoveTime(Date.now())
-    }
-
-    // Record reaction time
-    const currentTime = Date.now()
-    const reactionTime = currentTime - lastMoveTime
-    setReactionTimes((prev) => [...prev, reactionTime])
-    setLastMoveTime(currentTime)
 
     // Flip the card
-    const newFlippedCards = [...flippedCards, index]
-    setFlippedCards(newFlippedCards)
+    setCards((prevCards) => prevCards.map((card) => (card.id === cardId ? { ...card, isFlipped: true } : card)))
 
-    // Check for match after two cards are flipped
-    if (newFlippedCards.length === 2) {
-      setMoves((prev) => prev + 1)
-
-      const [firstIndex, secondIndex] = newFlippedCards
-      if (cards[firstIndex].value === cards[secondIndex].value) {
-        // Match found
-        setMatchedPairs((prev) => prev + 1)
-        setCards((prev) =>
-          prev.map((card, i) =>
-            i === firstIndex || i === secondIndex ? { ...card, flipped: true, matched: true } : card,
-          ),
-        )
-        setFlippedCards([])
-      } else {
-        // No match, flip back after a delay
-        setMistakes((prev) => prev + 1)
-        setTimeout(() => {
-          setCards((prev) =>
-            prev.map((card, i) => (i === firstIndex || i === secondIndex ? { ...card, flipped: false } : card)),
-          )
-          setFlippedCards([])
-        }, 1000)
-      }
-    }
+    // Add to flipped cards
+    setFlippedCards((prev) => [...prev, cardId])
   }
 
-  // End the game
-  const endGame = (success: boolean) => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-    }
+  const calculateScore = () => {
+    // Base score calculation:
+    // - Higher score for fewer moves
+    // - Higher score for faster time
+    // - Adjusted by difficulty
 
-    setGameCompleted(true)
+    const difficultyMultiplier = {
+      easy: 1,
+      medium: 1.5,
+      hard: 2,
+    }[difficulty]
 
-    // Calculate final score
-    const accuracy = moves > 0 ? ((matchedPairs / moves) * 100).toFixed(1) : 0
-    const avgReactionTime =
-      reactionTimes.length > 0 ? reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length : 0
+    const movesPenalty = Math.max(0, moves - totalPairs) * 5
+    const timePenalty = Math.floor(time / 10)
 
-    // Show completion message
-    if (success) {
-      toast({
-        title: "Congratulations!",
-        description: `You completed the game in ${formatTime(timeElapsed)} with ${moves} moves and ${mistakes} mistakes!`,
-        duration: 5000,
-      })
+    const baseScore = 1000
+    const calculatedScore = Math.max(0, Math.floor((baseScore - movesPenalty - timePenalty) * difficultyMultiplier))
 
-      // Show confetti for game completion
-      confetti({
-        particleCount: 200,
-        spread: 160,
-        origin: { y: 0.6 },
-      })
-    } else {
-      toast({
-        title: "Time's Up!",
-        description: `You've run out of time. You made ${moves} moves and ${mistakes} mistakes.`,
-        variant: "destructive",
-      })
-    }
-
-    // Call onComplete callback if provided
-    if (onComplete) {
-      onComplete({
-        score: calculateScore(accuracy, timeElapsed, mistakes),
-        accuracy: Number(accuracy),
-        completionRate: matchedPairs / pairs,
-        mistakeCount: mistakes,
-        reactionTime: avgReactionTime,
-        duration: timeElapsed,
-      })
-    }
+    return calculatedScore
   }
 
-  // Calculate score
-  const calculateScore = (accuracy: string, timeElapsed: number, mistakes: number): number => {
-    const accuracyScore = Number(accuracy) * 5
-    const timeBonus = Math.max(0, 100 - timeElapsed) * 2
-    const mistakePenalty = mistakes * 10
-
-    return Math.max(0, Math.round(accuracyScore + timeBonus - mistakePenalty))
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  // Restart the game
+  const togglePlay = () => {
+    setIsPlaying((prev) => !prev)
+  }
+
   const restartGame = () => {
     initializeGame()
   }
 
-  // Format time as MM:SS
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-  }
-
   return (
-    <div ref={gameContainerRef} className="flex flex-col items-center w-full">
-      {/* Game header */}
-      <div className="w-full flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Memory Match</h1>
-          <Badge variant="outline">{difficulty}</Badge>
+    <Card className="w-full max-w-4xl mx-auto">
+      <CardHeader>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <CardTitle className="text-2xl">Memory Match</CardTitle>
+            <CardDescription>Find all matching pairs to complete the game</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
+              {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={restartGame}>
+              <RotateCcw className="h-4 w-4 mr-1" />
+              Restart
+            </Button>
+          </div>
         </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1">
-            <Clock className="h-5 w-5 text-muted-foreground" />
-            <span className="font-mono text-lg">{formatTime(timeLimit - timeElapsed)}</span>
+      </CardHeader>
+      <CardContent>
+        {/* Game Stats */}
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{formatTime(time)}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Award className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{moves} Moves</span>
+            </div>
           </div>
-
           <div className="flex items-center gap-1">
-            <Award className="h-5 w-5 text-yellow-500" />
-            <span className="font-mono text-lg">{score}</span>
+            <span className="text-sm font-medium">Progress:</span>
+            <div className="w-32 ml-2">
+              <Progress value={(matchedPairs / totalPairs) * 100} className="h-2" />
+            </div>
+            <span className="text-xs text-muted-foreground ml-2">
+              {matchedPairs}/{totalPairs}
+            </span>
           </div>
-
-          <Button variant="outline" size="icon" onClick={restartGame} title="Restart Game">
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-
-          {onExit && (
-            <Button variant="outline" size="icon" onClick={onExit} title="Exit Game">
-              <Home className="h-4 w-4" />
+          {!gameComplete && (
+            <Button variant="ghost" size="sm" onClick={togglePlay} className="text-xs">
+              {isPlaying ? (
+                <>
+                  <Pause className="h-3 w-3 mr-1" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play className="h-3 w-3 mr-1" />
+                  {time === 0 ? "Start" : "Resume"}
+                </>
+              )}
             </Button>
           )}
         </div>
-      </div>
 
-      {/* Game board */}
-      <div className="grid grid-cols-4 gap-4">
-        {cards.map((card, index) => (
-          <div
-            key={card.id}
-            data-testid="memory-card"
-            data-flipped={card.flipped}
-            data-matched={card.matched}
-            className={`relative w-24 h-24 rounded-lg cursor-pointer transition-transform duration-300 ${
-              card.flipped || card.matched ? "transform rotate-y-180" : ""
-            }`}
-            onClick={() => handleCardClick(index)}
-          >
-            <div className="absolute inset-0 bg-gray-200 rounded-lg backface-hidden"></div>
-            <div className="absolute inset-0 flex items-center justify-center text-3xl font-bold text-gray-800 bg-white rounded-lg rotate-y-180 backface-hidden">
-              {card.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Game completed overlay */}
-      {gameCompleted && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md">
-            <CardContent className="p-6">
-              <h2 className="text-2xl font-bold text-center mb-4">
-                {matchedPairs === pairs ? "Congratulations!" : "Time's Up!"}
-              </h2>
-
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Final Score</p>
-                  <p className="text-3xl font-bold text-primary">{score}</p>
+        {/* Game Grid */}
+        <div
+          className={cn("grid gap-2 sm:gap-4", {
+            "grid-cols-4 grid-rows-3": difficulty === "easy",
+            "grid-cols-4 grid-rows-4": difficulty === "medium",
+            "grid-cols-6 grid-rows-4": difficulty === "hard",
+          })}
+        >
+          {cards.map((card) => (
+            <motion.div
+              key={card.id}
+              className={cn("aspect-square rounded-lg cursor-pointer perspective-500", {
+                "pointer-events-none": !isPlaying && !gameComplete,
+              })}
+              onClick={() => handleCardClick(card.id)}
+              whileHover={{ scale: card.isFlipped || card.isMatched ? 1 : 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <div
+                className={cn("w-full h-full relative transition-transform duration-500 transform-style-3d", {
+                  "rotate-y-180": card.isFlipped || card.isMatched,
+                })}
+              >
+                {/* Card Back */}
+                <div className="absolute w-full h-full backface-hidden bg-primary-100 border-2 border-primary-200 rounded-lg flex items-center justify-center text-primary-500">
+                  <span className="text-2xl">?</span>
                 </div>
 
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Accuracy</p>
-                  <p className="text-xl">{moves > 0 ? ((matchedPairs / moves) * 100).toFixed(1) : 0}%</p>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Time</p>
-                  <p className="text-xl font-mono">{formatTime(timeElapsed)}</p>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">Mistakes</p>
-                  <p className="text-xl">{mistakes}</p>
+                {/* Card Front */}
+                <div
+                  className={cn(
+                    "absolute w-full h-full backface-hidden rotate-y-180 rounded-lg flex items-center justify-center text-4xl",
+                    {
+                      "bg-green-100 border-2 border-green-200": card.isMatched,
+                      "bg-white border-2 border-primary-200": !card.isMatched,
+                    },
+                  )}
+                >
+                  {card.value}
                 </div>
               </div>
-
-              <div className="flex justify-center gap-4">
-                <Button onClick={restartGame}>Play Again</Button>
-
-                {onExit && (
-                  <Button variant="outline" onClick={onExit}>
-                    Exit
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+            </motion.div>
+          ))}
         </div>
-      )}
-    </div>
+      </CardContent>
+
+      {/* Game Complete Screen */}
+      <AnimatePresence>
+        {gameComplete && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <CardFooter className="flex flex-col items-center p-6 bg-primary-50 rounded-b-lg">
+              <div className="text-center mb-4">
+                <h3 className="text-xl font-bold text-primary-700 mb-1">Congratulations!</h3>
+                <p className="text-sm text-muted-foreground">
+                  You completed the game in {formatTime(time)} with {moves} moves
+                </p>
+              </div>
+
+              <div className="bg-white rounded-full p-4 mb-4 shadow-md">
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground mb-1">Your Score</p>
+                  <p className="text-3xl font-bold text-primary-600">{score}</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <Button onClick={restartGame}>Play Again</Button>
+                <Button variant="outline" asChild>
+                  <a href="/dashboard/games">More Games</a>
+                </Button>
+              </div>
+            </CardFooter>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Card>
   )
 }
-\
-"
 

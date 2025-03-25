@@ -1,149 +1,64 @@
-import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth/next"
-import { authOptions } from "@/lib/auth"
-import prisma from "@/lib/db-client"
+import { type NextRequest, NextResponse } from "next/server"
+import { PatientService } from "@/services/patient-service"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"
 
-export async function GET() {
-  const session = await getServerSession(authOptions)
-
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
+export async function GET(req: NextRequest) {
   try {
-    let patients = []
-
-    // Filter patients based on user role
-    if (session.user.role === "DOCTOR") {
-      const doctor = await prisma.doctor.findFirst({
-        where: {
-          userId: session.user.id,
-        },
-      })
-
-      if (!doctor) {
-        return NextResponse.json({ error: "Doctor not found" }, { status: 404 })
-      }
-
-      patients = await prisma.patient.findMany({
-        where: {
-          doctorId: doctor.id,
-        },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          cognitiveScores: {
-            orderBy: {
-              date: "desc",
-            },
-            take: 5,
-          },
-        },
-      })
-    } else if (session.user.role === "CAREGIVER") {
-      const caregiver = await prisma.caregiver.findFirst({
-        where: {
-          userId: session.user.id,
-        },
-      })
-
-      if (!caregiver) {
-        return NextResponse.json({ error: "Caregiver not found" }, { status: 404 })
-      }
-
-      patients = await prisma.patient.findMany({
-        where: {
-          caregiverId: caregiver.id,
-        },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          cognitiveScores: {
-            orderBy: {
-              date: "desc",
-            },
-            take: 5,
-          },
-        },
-      })
-    } else if (session.user.role === "ADMIN") {
-      patients = await prisma.patient.findMany({
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          cognitiveScores: {
-            orderBy: {
-              date: "desc",
-            },
-            take: 5,
-          },
-        },
-      })
-    } else {
-      // For patient role, return only their own data
-      const patient = await prisma.patient.findFirst({
-        where: {
-          userId: session.user.id,
-        },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          cognitiveScores: {
-            orderBy: {
-              date: "desc",
-            },
-            take: 5,
-          },
-        },
-      })
-
-      if (patient) {
-        patients = [patient]
-      }
+    // Check authentication
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    return NextResponse.json(
-      patients.map((patient) => ({
-        id: patient.id,
-        name: patient.user.name,
-        email: patient.user.email,
-        image: patient.user.image,
-        age: patient.age,
-        gender: patient.gender,
-        diagnosis: patient.diagnosis,
-        mmseScore: patient.mmseScore,
-        lastCheckup: patient.lastCheckup,
-        riskLevel: patient.riskLevel,
-        status: patient.status,
-        cognitiveScores: patient.cognitiveScores.map((score) => ({
-          date: score.date,
-          score: score.score,
-        })),
-      })),
-    )
+    // Get query parameters
+    const searchParams = req.nextUrl.searchParams
+    const page = Number.parseInt(searchParams.get("page") || "1")
+    const limit = Number.parseInt(searchParams.get("limit") || "10")
+
+    // Get patients
+    const patients = await PatientService.getAllPatients(page, limit)
+
+    return NextResponse.json(patients)
   } catch (error) {
     console.error("Error fetching patients:", error)
     return NextResponse.json({ error: "Failed to fetch patients" }, { status: 500 })
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // Check authentication
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Check if user is admin or doctor
+    if (session.user.role !== "ADMIN" && session.user.role !== "DOCTOR") {
+      return NextResponse.json({ error: "Forbidden: Only admins and doctors can create patients" }, { status: 403 })
+    }
+
+    // Get request body
+    const body = await req.json()
+
+    // Validate required fields
+    if (!body.userId) {
+      return NextResponse.json({ error: "User ID is required" }, { status: 400 })
+    }
+
+    // Create patient
+    const patient = await PatientService.createPatient({
+      userId: body.userId,
+      dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+      diagnosis: body.diagnosis,
+      riskLevel: body.riskLevel,
+    })
+
+    return NextResponse.json(patient, { status: 201 })
+  } catch (error) {
+    console.error("Error creating patient:", error)
+    return NextResponse.json({ error: "Failed to create patient" }, { status: 500 })
   }
 }
 

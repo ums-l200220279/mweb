@@ -1,63 +1,82 @@
-/**
- * Test Utilities
- *
- * This file provides utility functions and components for testing.
- */
-
 import type React from "react"
 import type { ReactElement } from "react"
 import { render, type RenderOptions } from "@testing-library/react"
-import { ThemeProvider } from "@/lib/design-system/theme-provider"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { jest } from "@jest/globals"
+import { ThemeProvider } from "@/components/theme-provider"
+import { SessionProvider } from "next-auth/react"
 
-// Create a custom render function that includes providers
+// Wrapper provider untuk testing
 const AllProviders = ({ children }: { children: React.ReactNode }) => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  })
-
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light">{children}</ThemeProvider>
-    </QueryClientProvider>
+    <SessionProvider
+      session={{
+        user: {
+          id: "test-user-id",
+          name: "Test User",
+          email: "test@example.com",
+          role: "DOCTOR",
+        },
+        expires: new Date(Date.now() + 3600 * 1000).toISOString(),
+      }}
+    >
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        {children}
+      </ThemeProvider>
+    </SessionProvider>
   )
 }
 
+// Custom render dengan providers
 const customRender = (ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) =>
   render(ui, { wrapper: AllProviders, ...options })
 
-// Re-export everything from testing-library
+// Re-export semua dari testing-library
 export * from "@testing-library/react"
-
-// Override render method
 export { customRender as render }
 
-// Mock next/navigation
-export const mockRouter = {
-  push: jest.fn(),
-  replace: jest.fn(),
-  prefetch: jest.fn(),
-  back: jest.fn(),
-  forward: jest.fn(),
+// Helper untuk membuat test user
+export function createTestUser(overrides = {}) {
+  return {
+    id: "test-user-id",
+    name: "Test User",
+    email: "test@example.com",
+    role: "DOCTOR",
+    ...overrides,
+  }
 }
 
-jest.mock("next/navigation", () => ({
-  useRouter: () => mockRouter,
-  usePathname: () => "/",
-  useSearchParams: () => new URLSearchParams(),
-}))
+// Helper untuk membuat test patient
+export function createTestPatient(overrides = {}) {
+  return {
+    id: "test-patient-id",
+    firstName: "Test",
+    lastName: "Patient",
+    dateOfBirth: "1970-01-01",
+    gender: "MALE",
+    ...overrides,
+  }
+}
 
-// Mock next/image
-jest.mock("next/image", () => ({
-  __esModule: true,
-  default: (props: any) => {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img {...props} alt={props.alt || ""} />
-  },
-}))
+// Helper untuk membuat test assessment
+export function createTestAssessment(overrides = {}) {
+  return {
+    id: "test-assessment-id",
+    patientId: "test-patient-id",
+    type: "MMSE",
+    responses: [],
+    score: {
+      totalScore: 28,
+      categoryScores: {
+        orientation: 10,
+        registration: 3,
+        attentionCalculation: 5,
+        recall: 3,
+        language: 6,
+        visuospatial: 1,
+      },
+      interpretation: "Normal cognitive function",
+    },
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  }
+}
 

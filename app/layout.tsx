@@ -1,33 +1,21 @@
-import type React from "react"
-import type { Metadata } from "next"
-import { Inter } from "next/font/google"
 import "./globals.css"
-import { ThemeProvider } from "@/lib/design-system/theme-provider"
-import Navbar from "@/components/navbar"
-import Footer from "@/components/footer"
+import { Inter } from "next/font/google"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
-export const metadata: Metadata = {
-  title: "Memoright - AI-Powered Cognitive Health Platform",
-  description: "Early detection, personalized care, and continuous support for better brain health",
+export const metadata = {
+  title: "MemoRight - Cognitive Training",
+  description: "Train your brain with scientifically-designed cognitive exercises",
     generator: 'v0.dev'
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider defaultTheme="light" storageKey="memoright-theme">
-          <div className="flex min-h-screen flex-col">
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
-          </div>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
         </ThemeProvider>
       </body>
     </html>

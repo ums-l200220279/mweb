@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss"
+import { memorightTheme } from "./lib/design-system"
 
-const config = {
+const config: Config = {
   darkMode: ["class"],
   content: [
     "./pages/**/*.{ts,tsx}",
@@ -9,15 +10,7 @@ const config = {
     "./src/**/*.{ts,tsx}",
     "*.{js,ts,jsx,tsx,mdx}",
   ],
-  prefix: "",
   theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
-    },
     extend: {
       colors: {
         border: "hsl(var(--border))",
@@ -28,10 +21,12 @@ const config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          ...memorightTheme.colors.primary,
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
+          ...memorightTheme.colors.secondary,
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
@@ -53,25 +48,18 @@ const config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Custom brand colors
-        turquoise: {
-          50: "#edfafa",
-          100: "#d5f0f0",
-          200: "#afe4e4",
-          300: "#7ed1d1",
-          400: "#4db8b8",
-          500: "#2c9e9e",
-          600: "#1f7f7f",
-          700: "#1a6767",
-          800: "#175252",
-          900: "#164444",
-          950: "#0c2828",
-        },
+        turquoise: memorightTheme.colors.primary,
+      },
+      fontFamily: {
+        sans: [memorightTheme.typography.fontFamily.sans],
+        serif: [memorightTheme.typography.fontFamily.serif],
+        mono: [memorightTheme.typography.fontFamily.mono],
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        ...memorightTheme.borderRadius,
       },
       keyframes: {
         "accordion-down": {
@@ -82,15 +70,25 @@ const config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "pulse-subtle": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.8" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-10px)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "pulse-subtle": "pulse-subtle 3s infinite ease-in-out",
+        float: "float 6s infinite ease-in-out",
       },
     },
   },
   plugins: [require("tailwindcss-animate")],
-} satisfies Config
+}
 
 export default config
 

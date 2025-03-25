@@ -1,90 +1,61 @@
-/**
- * Test Setup Configuration
- *
- * This file configures the testing environment for the Memoright application.
- * It sets up Jest, React Testing Library, and Mock Service Worker for API mocking.
- */
-
 import "@testing-library/jest-dom"
 import { server } from "./mocks/server"
+import { prisma } from "@/lib/prisma"
+import { seedTestDatabase } from "./seed-data"
 
-// Establish API mocking before all tests
-beforeAll(() => server.listen({ onUnhandledRequest: "warn" }))
-
-// Reset any request handlers that we may add during the tests,
-// so they don't affect other tests
+// Setup mock server
+beforeAll(() => server.listen())
 afterEach(() => server.resetHandlers())
-
-// Clean up after the tests are finished
 afterAll(() => server.close())
 
-// Mock IntersectionObserver
-class MockIntersectionObserver {
-  readonly root: Element | null
-  readonly rootMargin: string
-  readonly thresholds: ReadonlyArray<number>
+// Setup database untuk pengujian
+beforeAll(async () => {
+  // Gunakan database test
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
 
-  constructor() {
-    this.root = null
-    this.rootMargin = ""
-    this.thresholds = []
-  }
+  // Reset database
+  await prisma.$executeRaw`TRUNCATE TABLE "CognitiveAssessment" CASCADE`
+  await prisma.$executeRaw`TRUNCATE TABLE "Patient" CASCADE`
+  await prisma.$executeRaw`TRUNCATE TABLE "User" CASCADE`
+  await prisma.$executeRaw`TRUNCATE TABLE "PatientUserRelationship" CASCADE`
 
-  disconnect() {
-    return null
-  }
-
-  observe() {
-    return null
-  }
-
-  takeRecords() {
-    return []
-  }
-
-  unobserve() {
-    return null
-  }
-}
-
-global.IntersectionObserver = MockIntersectionObserver
-
-// Mock window.matchMedia
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: jest.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(),
-    removeListener: jest.fn(),
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
+  // Seed data test
+  await seedTestDatabase()
 })
 
-// Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
+// Cleanup setelah semua test
+afterAll(async () => {
+  await prisma.$disconnect()
+})
 
-// Mock scrollTo
-window.scrollTo = jest.fn()
+// Mock untuk next/navigation
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+  }),
+  useSearchParams: () => ({
+    get: jest.fn(),
+  }),
+  usePathname: () => "",
+}))
 
-// Suppress console errors during tests
-const originalConsoleError = console.error
-console.error = (...args) => {
-  if (
-    typeof args[0] === "string" &&
-    (args[0].includes("Warning: ReactDOM.render") ||
-      args[0].includes("Warning: React.createElement") ||
-      args[0].includes("Warning: Each child in a list"))
-  ) {
-    return
-  }
-  originalConsoleError(...args)
-}
+// Mock untuk next-auth
+jest.mock("next-auth/react", () => ({
+  useSession: jest.fn(() => ({
+    data: {
+      user: {
+        id: "test-user-id",
+        name: "Test User",
+        email: "test@example.com",
+        role: "DOCTOR",
+      },
+    },
+    status: "authenticated",
+  })),
+  signIn: jest.fn(),
+  signOut: jest.fn(),
+  getSession: jest.fn(),
+}))
 

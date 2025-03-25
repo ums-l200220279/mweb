@@ -1,166 +1,114 @@
 /**
- * Structured logger with support for different log levels and contexts
+ * Structured logging service
  */
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
-interface LogContext {
-  [key: string]: any
+interface LogEntry {
+  level: LogLevel
+  message: string
+  timestamp: string
+  context?: Record<string, any>
 }
 
-interface LogOptions {
-  context?: LogContext
-  tags?: string[]
-  userId?: string
-  sessionId?: string
-}
+class Logger {
+  private readonly minLevel: LogLevel
+  private readonly logToConsole: boolean
+  private readonly logToApi: boolean
+  private readonly apiEndpoint?: string
+  private readonly apiKey?: string
 
-// Environment variables
-const LOG_LEVEL = process.env.LOG_LEVEL || "info"
-const LOG_TO_CONSOLE = process.env.LOG_TO_CONSOLE !== "false"
-const LOG_ENDPOINT = process.env.LOG_ENDPOINT
-const LOG_API_KEY = process.env.LOG_API_KEY
-
-// Log level hierarchy for filtering
-const LOG_LEVELS: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-}
-
-// Check if the log level should be logged based on the configured level
-const shouldLog = (level: LogLevel): boolean => {
-  return LOG_LEVELS[level] >= LOG_LEVELS[LOG_LEVEL as LogLevel]
-}
-
-// Format the log message with timestamp and level
-const formatLogMessage = (level: LogLevel, message: string, options?: LogOptions): any => {
-  const timestamp = new Date().toISOString()
-
-  return {
-    timestamp,
-    level,
-    message,
-    ...options?.context,
-    tags: options?.tags || [],
-    userId: options?.userId,
-    sessionId: options?.sessionId,
+  constructor() {
+    this.minLevel = (process.env.LOG_LEVEL as LogLevel) || "info"
+    this.logToConsole = process.env.LOG_TO_CONSOLE !== "false"
+    this.logToApi = !!process.env.LOG_ENDPOINT
+    this.apiEndpoint = process.env.LOG_ENDPOINT
+    this.apiKey = process.env.LOG_API_KEY
   }
-}
 
-// Send log to remote logging service if configured
-const sendRemoteLog = async (logData: any): Promise<void> => {
-  if (!LOG_ENDPOINT) return
-
-  try {
-    await fetch(LOG_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LOG_API_KEY}`,
-      },
-      body: JSON.stringify(logData),
-    })
-  } catch (error) {
-    // Don't use the logger here to avoid infinite loops
-    console.error("Failed to send log to remote endpoint:", error)
-  }
-}
-
-// Log to console with appropriate styling
-const logToConsole = (level: LogLevel, formattedLog: any): void => {
-  if (!LOG_TO_CONSOLE) return
-
-  const { timestamp, message, ...rest } = formattedLog
-  const contextStr = Object.keys(rest).length > 0 ? JSON.stringify(rest) : ""
-
-  switch (level) {
-    case "debug":
-      console.debug(`[${timestamp}] [DEBUG] ${message}`, contextStr)
-      break
-    case "info":
-      console.info(`[${timestamp}] [INFO] ${message}`, contextStr)
-      break
-    case "warn":
-      console.warn(`[${timestamp}] [WARN] ${message}`, contextStr)
-      break
-    case "error":
-      console.error(`[${timestamp}] [ERROR] ${message}`, contextStr)
-      break
-  }
-}
-
-// Main logger functions
-export const logger = {
-  debug: (message: string, options?: LogOptions): void => {
-    if (!shouldLog("debug")) return
-
-    const formattedLog = formatLogMessage("debug", message, options)
-    logToConsole("debug", formattedLog)
-    sendRemoteLog(formattedLog)
-  },
-
-  info: (message: string, options?: LogOptions): void => {
-    if (!shouldLog("info")) return
-
-    const formattedLog = formatLogMessage("info", message, options)
-    logToConsole("info", formattedLog)
-    sendRemoteLog(formattedLog)
-  },
-
-  warn: (message: string, options?: LogOptions): void => {
-    if (!shouldLog("warn")) return
-
-    const formattedLog = formatLogMessage("warn", message, options)
-    logToConsole("warn", formattedLog)
-    sendRemoteLog(formattedLog)
-  },
-
-  error: (message: string, error?: Error, options?: LogOptions): void => {
-    if (!shouldLog("error")) return
-
-    const context = {
-      ...(options?.context || {}),
-      errorName: error?.name,
-      errorMessage: error?.message,
-      errorStack: error?.stack,
+  private shouldLog(level: LogLevel): boolean {
+    const levels: Record<LogLevel, number> = {
+      debug: 0,
+      info: 1,
+      warn: 2,
+      error: 3,
     }
 
-    const formattedLog = formatLogMessage("error", message, {
-      ...options,
-      context,
-    })
+    return levels[level] >= levels[this.minLevel]
+  }
 
-    logToConsole("error", formattedLog)
-    sendRemoteLog(formattedLog)
-  },
+  private async sendToApi(entry: LogEntry): Promise<void> {
+    if (!this.logToApi || !this.apiEndpoint) return
 
-  // Create a child logger with predefined context
-  child: (defaultContext: LogContext) => ({
-    debug: (message: string, options?: LogOptions) =>
-      logger.debug(message, {
-        ...options,
-        context: { ...defaultContext, ...(options?.context || {}) },
-      }),
+    try {
+      await fetch(this.apiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.apiKey && { "X-API-Key": this.apiKey }),
+        },
+        body: JSON.stringify(entry),
+      })
+    } catch (error) {
+      // Fallback to console if API logging fails
+      console.error("Failed to send log to API:", error)
+    }
+  }
 
-    info: (message: string, options?: LogOptions) =>
-      logger.info(message, {
-        ...options,
-        context: { ...defaultContext, ...(options?.context || {}) },
-      }),
+  private logToOutput(entry: LogEntry): void {
+    if (!this.logToConsole) return
 
-    warn: (message: string, options?: LogOptions) =>
-      logger.warn(message, {
-        ...options,
-        context: { ...defaultContext, ...(options?.context || {}) },
-      }),
+    const { level, message, timestamp, context } = entry
 
-    error: (message: string, error?: Error, options?: LogOptions) =>
-      logger.error(message, error, {
-        ...options,
-        context: { ...defaultContext, ...(options?.context || {}) },
-      }),
-  }),
+    // Format for better console readability
+    const formattedContext = context ? `\n${JSON.stringify(context, null, 2)}` : ""
+
+    switch (level) {
+      case "debug":
+        console.debug(`[${timestamp}] DEBUG: ${message}${formattedContext}`)
+        break
+      case "info":
+        console.info(`[${timestamp}] INFO: ${message}${formattedContext}`)
+        break
+      case "warn":
+        console.warn(`[${timestamp}] WARN: ${message}${formattedContext}`)
+        break
+      case "error":
+        console.error(`[${timestamp}] ERROR: ${message}${formattedContext}`)
+        break
+    }
+  }
+
+  private async log(level: LogLevel, message: string, context?: Record<string, any>): Promise<void> {
+    if (!this.shouldLog(level)) return
+
+    const entry: LogEntry = {
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+      ...(context && { context }),
+    }
+
+    this.logToOutput(entry)
+    await this.sendToApi(entry)
+  }
+
+  debug(message: string, context?: Record<string, any>): void {
+    this.log("debug", message, context)
+  }
+
+  info(message: string, context?: Record<string, any>): void {
+    this.log("info", message, context)
+  }
+
+  warn(message: string, context?: Record<string, any>): void {
+    this.log("warn", message, context)
+  }
+
+  error(message: string, context?: Record<string, any>): void {
+    this.log("error", message, context)
+  }
 }
+
+export const logger = new Logger()
 

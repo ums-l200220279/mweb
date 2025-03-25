@@ -1,136 +1,147 @@
 "use client"
 
 import type React from "react"
-import Image from "next/image"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { signIn } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Card, CardContent } from "@/components/ui/card"
-import Link from "next/link"
-import { motion } from "framer-motion"
-import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { CsrfForm } from "@/components/auth/csrf-form"
+import { AlertCircle } from "lucide-react"
 
-export default function LoginForm() {
-  const [isLoading, setIsLoading] = useState(false)
+export function LoginForm() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard"
+
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
+  const [totpCode, setTotpCode] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
-  const router = useRouter()
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [require2FA, setRequire2FA] = useState(false)
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
-    // Here you would typically handle the actual login logic
-    // For now, we'll just simulate a delay and redirect
-    setTimeout(() => {
-      setIsLoading(false)
-      router.push("/patient/dashboard")
-    }, 1500)
+    setLoading(true)
+    setError("")
+
+    try {
+      const result = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
+        totpCode: require2FA ? totpCode : undefined,
+        callbackUrl,
+      })
+
+      if (!result?.ok) {
+        if (result?.error === "2FA_REQUIRED") {
+          setRequire2FA(true)
+          setLoading(false)
+          return
+        }
+
+        throw new Error(
+          result?.error === "INVALID_2FA_CODE"
+            ? "Invalid verification code. Please try again."
+            : "Invalid email or password",
+        )
+      }
+
+      // Redirect to callback URL or dashboard
+      router.push(callbackUrl)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred")
+      setLoading(false)
+    }
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <Card className="border-0 shadow-none">
-        <CardContent className="p-0">
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                Email
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="h-11"
-              />
-            </div>
+    <CsrfForm action="/api/auth/callback/credentials" className="space-y-4" onSubmit={handleSubmit}>
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  Password
-                </Label>
-                <Link href="/forgot-password" className="text-xs text-turquoise-600 hover:underline">
-                  Forgot password?
-                </Link>
-              </div>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="h-11 pr-10"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              </div>
-            </div>
+      <div className="space-y-2">
+        <Label htmlFor="email">Email</Label>
+        <Input
+          id="email"
+          type="email"
+          placeholder="name@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={loading || require2FA}
+          required
+        />
+      </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="remember"
-                checked={rememberMe}
-                onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-              />
-              <Label htmlFor="remember" className="text-sm text-gray-600">
-                Remember me for 30 days
-              </Label>
-            </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">Password</Label>
+          <a href="/auth/forgot-password" className="text-sm font-medium text-primary hover:underline">
+            Forgot password?
+          </a>
+        </div>
+        <Input
+          id="password"
+          type="password"
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={loading || require2FA}
+          required
+        />
+      </div>
 
-            <Button
-              type="submit"
-              className="w-full h-11 bg-turquoise-600 hover:bg-turquoise-700 text-white font-medium"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Logging in...
-                </>
-              ) : (
-                "Log in"
-              )}
-            </Button>
+      {require2FA && (
+        <div className="space-y-2">
+          <Label htmlFor="totpCode">Verification Code</Label>
+          <Input
+            id="totpCode"
+            type="text"
+            placeholder="Enter 6-digit code"
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value)}
+            disabled={loading}
+            required
+            autoFocus
+            maxLength={6}
+            pattern="[0-9]{6}"
+          />
+          <p className="text-xs text-muted-foreground">Enter the verification code from your authenticator app</p>
+        </div>
+      )}
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t"></span>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-gray-50 px-2 text-gray-500">Or continue with</span>
-              </div>
-            </div>
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="remember"
+          checked={rememberMe}
+          onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+          disabled={loading}
+        />
+        <Label
+          htmlFor="remember"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+        >
+          Remember me
+        </Label>
+      </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Button type="button" variant="outline" className="h-11">
-                <Image src="/placeholder.svg?height=20&width=20" alt="Google" width={20} height={20} className="mr-2" />
-                Google
-              </Button>
-              <Button type="button" variant="outline" className="h-11">
-                <Image src="/placeholder.svg?height=20&width=20" alt="Apple" width={20} height={20} className="mr-2" />
-                Apple
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </motion.div>
+      <Button type="submit" className="w-full" disabled={loading}>
+        {loading ? "Signing in..." : require2FA ? "Verify" : "Sign in"}
+      </Button>
+    </CsrfForm>
   )
 }
 
